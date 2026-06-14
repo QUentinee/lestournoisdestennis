@@ -68,7 +68,7 @@ export default function App() {
 
   const loadMatches = useCallback(async (date) => {
     try {
-      const res = await fetch(`${BASE}/sport/tennis/scheduled-events/${date}`)
+      const res = await fetch(`/api/tennis?date=${date}`)
       const data = await res.json()
       const events = (data.events || []).filter(isAtpWta)
       setMatches(events)
