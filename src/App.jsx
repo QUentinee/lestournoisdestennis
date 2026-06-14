@@ -1,83 +1,103 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from './supabase'
-
-// IDs des tournois ATP/WTA principaux sur Sofascore
-// ATP: 2480=Australian Open, 2481=Roland Garros, 2482=Wimbledon, 2483=US Open
-// ATP 1000: 2484=Indian Wells, 2485=Miami, 2486=Madrid, 2487=Rome,
-//           2488=Canada, 2489=Cincinnati, 2490=Shanghai, 2491=Paris, 2492=Monte Carlo
-// ATP 500: 2493=Dubaï, 2494=Barcelone, 2495=Halle, 2496=Queen's, 2497=Vienne, 2498=Bâle, 2499=Rotterdam, 2500=Washington
-// WTA 1000: 2606=Indian Wells, 2607=Miami, 2608=Madrid, 2609=Rome, 2610=Canada, 2611=Cincinnati, 2612=Pékin
-// WTA 500: 2620=Dubaï, 2621=Stuttgart, 2622=Berlin
-
-const TOURNAMENTS_CONFIG = [
-  // Grand Chelems
-  { id: 2480, name: 'Australian Open', category: 'Grand Chelem', circuit: 'ATP/WTA', pts: 100 },
-  { id: 2481, name: 'Roland Garros', category: 'Grand Chelem', circuit: 'ATP/WTA', pts: 100 },
-  { id: 2482, name: 'Wimbledon', category: 'Grand Chelem', circuit: 'ATP/WTA', pts: 100 },
-  { id: 2483, name: 'US Open', category: 'Grand Chelem', circuit: 'ATP/WTA', pts: 100 },
-  // ATP Masters 1000
-  { id: 2484, name: 'Indian Wells (ATP)', category: 'ATP Masters 1000', circuit: 'ATP', pts: 60 },
-  { id: 2485, name: 'Miami (ATP)', category: 'ATP Masters 1000', circuit: 'ATP', pts: 60 },
-  { id: 2492, name: 'Monte Carlo', category: 'ATP Masters 1000', circuit: 'ATP', pts: 60 },
-  { id: 2486, name: 'Madrid (ATP)', category: 'ATP Masters 1000', circuit: 'ATP', pts: 60 },
-  { id: 2487, name: 'Rome (ATP)', category: 'ATP Masters 1000', circuit: 'ATP', pts: 60 },
-  { id: 2488, name: 'Canada (ATP)', category: 'ATP Masters 1000', circuit: 'ATP', pts: 60 },
-  { id: 2489, name: 'Cincinnati (ATP)', category: 'ATP Masters 1000', circuit: 'ATP', pts: 60 },
-  { id: 2490, name: 'Shanghai', category: 'ATP Masters 1000', circuit: 'ATP', pts: 60 },
-  { id: 2491, name: 'Paris Bercy', category: 'ATP Masters 1000', circuit: 'ATP', pts: 60 },
-  // ATP 500
-  { id: 2493, name: 'Dubaï (ATP)', category: 'ATP 500', circuit: 'ATP', pts: 40 },
-  { id: 2494, name: 'Barcelone', category: 'ATP 500', circuit: 'ATP', pts: 40 },
-  { id: 2499, name: 'Rotterdam', category: 'ATP 500', circuit: 'ATP', pts: 40 },
-  { id: 2500, name: 'Washington', category: 'ATP 500', circuit: 'ATP', pts: 40 },
-  { id: 2495, name: 'Halle', category: 'ATP 500', circuit: 'ATP', pts: 40 },
-  { id: 2496, name: "Queen's Club", category: 'ATP 500', circuit: 'ATP', pts: 40 },
-  { id: 2497, name: 'Vienne', category: 'ATP 500', circuit: 'ATP', pts: 40 },
-  { id: 2498, name: 'Bâle', category: 'ATP 500', circuit: 'ATP', pts: 40 },
-  // WTA 1000
-  { id: 2606, name: 'Indian Wells (WTA)', category: 'WTA 1000', circuit: 'WTA', pts: 60 },
-  { id: 2607, name: 'Miami (WTA)', category: 'WTA 1000', circuit: 'WTA', pts: 60 },
-  { id: 2608, name: 'Madrid (WTA)', category: 'WTA 1000', circuit: 'WTA', pts: 60 },
-  { id: 2609, name: 'Rome (WTA)', category: 'WTA 1000', circuit: 'WTA', pts: 60 },
-  { id: 2610, name: 'Canada (WTA)', category: 'WTA 1000', circuit: 'WTA', pts: 60 },
-  { id: 2611, name: 'Cincinnati (WTA)', category: 'WTA 1000', circuit: 'WTA', pts: 60 },
-  { id: 2612, name: 'Pékin (WTA)', category: 'WTA 1000', circuit: 'WTA', pts: 60 },
-  // WTA 500
-  { id: 2620, name: 'Dubaï (WTA)', category: 'WTA 500', circuit: 'WTA', pts: 40 },
-  { id: 2621, name: 'Stuttgart (WTA)', category: 'WTA 500', circuit: 'WTA', pts: 40 },
-  { id: 2622, name: 'Berlin (WTA)', category: 'WTA 500', circuit: 'WTA', pts: 40 },
-]
 
 const JOUEUR1 = import.meta.env.VITE_NOM_JOUEUR1 || 'Joueur 1'
 const JOUEUR2 = import.meta.env.VITE_NOM_JOUEUR2 || 'Joueur 2'
 const BASE = 'https://api.sofascore.com/api/v1'
 
-const CAT_COLORS = {
-  'Grand Chelem': { bg: '#fff3e0', color: '#e65100' },
-  'ATP Masters 1000': { bg: '#e3f2fd', color: '#0d47a1' },
-  'WTA 1000': { bg: '#fce4ec', color: '#880e4f' },
-  'ATP 500': { bg: '#e8f5e9', color: '#1b5e20' },
-  'WTA 500': { bg: '#f3e5f5', color: '#4a148c' },
+// Tournois ATP/WTA qu'on veut afficher (filtre les Challengers, ITF, etc.)
+const CATEGORIES_OK = [
+  'atp', 'wta', 'grand slam', 'masters', 'atp singles', 'wta singles'
+]
+
+// Points selon catégorie tournoi × tour
+const TOUR_MULTIPLIER = {
+  'F': 3, 'SF': 2, 'QF': 1.5, 'R16': 1, 'R32': 1, 'R64': 1, 'R128': 1
+}
+function getTourPts(categoryName, roundName) {
+  const name = categoryName?.toLowerCase() || ''
+  let base = 5
+  if (name.includes('grand slam')) base = 30
+  else if (name.includes('1000') || name.includes('masters')) base = 20
+  else if (name.includes('500')) base = 15
+  else if (name.includes('250')) base = 10
+  const round = roundName?.toUpperCase() || ''
+  const mult = Object.entries(TOUR_MULTIPLIER).find(([k]) => round.includes(k))?.[1] ?? 1
+  return Math.round(base * mult)
+}
+
+function isAtpWta(event) {
+  const cat = (
+    event?.tournament?.uniqueTournament?.primaryColorHex ||
+    event?.tournament?.category?.sport?.name || ''
+  ).toLowerCase()
+  const name = (event?.tournament?.name || '').toLowerCase()
+  const uniqueName = (event?.tournament?.uniqueTournament?.name || '').toLowerCase()
+  // Garde seulement les tournois ATP/WTA principaux
+  if (name.includes('challenger') || name.includes('itf') || name.includes('doubles')) return false
+  if (uniqueName.includes('challenger') || uniqueName.includes('itf') || uniqueName.includes('doubles')) return false
+  return true
+}
+
+function formatDate(d) {
+  return d.toISOString().split('T')[0]
+}
+
+function dateLabel(offset) {
+  if (offset === 0) return "Aujourd'hui"
+  if (offset === -1) return 'Hier'
+  if (offset === 1) return 'Demain'
+  const d = new Date()
+  d.setDate(d.getDate() + offset)
+  return d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })
 }
 
 export default function App() {
-  const [tournamentData, setTournamentData] = useState({}) // { id: { winner, season } }
+  const [dateOffset, setDateOffset] = useState(0)
+  const [matches, setMatches] = useState([]) // matchs du jour groupés par tournoi
   const [paris, setParis] = useState([])
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState('tournois')
-  const [circuitFilter, setCircuitFilter] = useState('TOUS')
-  const [liveMatches, setLiveMatches] = useState([])
+  const [activeTab, setActiveTab] = useState('matchs')
+  const [refreshing, setRefreshing] = useState(false)
 
-  useEffect(() => {
-    init()
-    const iv = setInterval(fetchLive, 60000)
-    return () => clearInterval(iv)
+  const currentDate = (() => {
+    const d = new Date()
+    d.setDate(d.getDate() + dateOffset)
+    return formatDate(d)
+  })()
+
+  const loadMatches = useCallback(async (date) => {
+    try {
+      const res = await fetch(`${BASE}/sport/tennis/scheduled-events/${date}`)
+      const data = await res.json()
+      const events = (data.events || []).filter(isAtpWta)
+      setMatches(events)
+      // Sauvegarde les résultats terminés en base
+      await saveResults(events)
+    } catch (e) {
+      console.warn('Erreur chargement matchs:', e.message)
+    }
   }, [])
 
-  async function init() {
-    setLoading(true)
-    await Promise.all([loadParis(), fetchAllTournaments(), fetchLive()])
-    setLoading(false)
+  async function saveResults(events) {
+    const finished = events.filter(e => e.status?.type === 'finished')
+    for (const e of finished) {
+      const winner = e.winnerCode === 1 ? e.homeTeam?.name : e.awayTeam?.name
+      if (!winner) continue
+      try {
+        const { data: existing } = await supabase.from('resultats').select('id').eq('tournament_id', String(e.id)).maybeSingle()
+        if (existing) {
+          await supabase.from('resultats').update({ vainqueur: winner, statut: 'finished' }).eq('tournament_id', String(e.id))
+        } else {
+          await supabase.from('resultats').insert({
+            tournament_id: String(e.id),
+            tournament_name: `${e.homeTeam?.name} vs ${e.awayTeam?.name}`,
+            vainqueur: winner,
+            statut: 'finished'
+          })
+        }
+      } catch {}
+    }
   }
 
   async function loadParis() {
@@ -85,137 +105,131 @@ export default function App() {
     setParis(data || [])
   }
 
-  // Récupère saison courante + vainqueur pour chaque tournoi
-  async function fetchAllTournaments() {
-    const results = {}
-    await Promise.all(
-      TOURNAMENTS_CONFIG.map(async (t) => {
-        try {
-          // 1. Récupère les saisons du tournoi
-          const res = await fetch(`${BASE}/unique-tournament/${t.id}/seasons/`)
-          const data = await res.json()
-          const seasons = data.seasons || []
-          // Prend la saison 2026 ou la plus récente
-          const season = seasons.find(s => s.year === '2026') || seasons[0]
-          if (!season) return
-
-          // 2. Récupère les matchs de la saison pour trouver le vainqueur de la finale
-          const res2 = await fetch(`${BASE}/unique-tournament/${t.id}/season/${season.id}/events/last/0`)
-          const data2 = await res2.json()
-          const events = data2.events || []
-
-          // Cherche la finale terminée
-          const finale = events.find(e =>
-            e.roundInfo?.name?.toLowerCase().includes('final') &&
-            !e.roundInfo?.name?.toLowerCase().includes('semi') &&
-            !e.roundInfo?.name?.toLowerCase().includes('quarter') &&
-            e.status?.type === 'finished'
-          )
-
-          let winner = null
-          if (finale) {
-            winner = finale.winnerCode === 1
-              ? finale.homeTeam?.name
-              : finale.awayTeam?.name
-          }
-
-          results[t.id] = { winner, season, status: finale ? 'finished' : 'upcoming' }
-
-          // Sauvegarde le vainqueur en base si trouvé
-          if (winner) {
-            const existing = await supabase.from('resultats').select('id').eq('tournament_id', String(t.id)).single()
-            if (existing.data) {
-              await supabase.from('resultats').update({ vainqueur: winner, statut: 'finished', updated_at: new Date().toISOString() }).eq('tournament_id', String(t.id))
-            } else {
-              await supabase.from('resultats').insert({ tournament_id: String(t.id), tournament_name: t.name, vainqueur: winner, statut: 'finished' })
-            }
-          }
-        } catch (e) {
-          console.warn(`Erreur tournoi ${t.name}:`, e.message)
-        }
-      })
-    )
-    setTournamentData(results)
+  async function refresh() {
+    setRefreshing(true)
+    await Promise.all([loadMatches(currentDate), loadParis()])
+    setRefreshing(false)
   }
 
-  async function fetchLive() {
-    try {
-      const today = new Date().toISOString().split('T')[0]
-      const res = await fetch(`${BASE}/sport/tennis/scheduled-events/${today}`)
-      const data = await res.json()
-      const live = (data.events || []).filter(e => e.status?.type === 'inprogress')
-      setLiveMatches(live)
-    } catch (e) {
-      console.warn('Erreur live:', e.message)
-    }
-  }
+  useEffect(() => {
+    setLoading(true)
+    Promise.all([loadMatches(currentDate), loadParis()]).then(() => setLoading(false))
+    const iv = setInterval(() => loadMatches(currentDate), 60000)
+    return () => clearInterval(iv)
+  }, [currentDate, loadMatches])
 
-  async function placerPari(tournamentId, tournamentName, joueur, nomParie) {
-    const existing = paris.find(p => p.tournament_id === String(tournamentId) && p.joueur === joueur)
+  async function placerPari(matchId, matchLabel, joueur, nomParie) {
+    const existing = paris.find(p => p.tournament_id === String(matchId) && p.joueur === joueur)
     if (existing) {
       await supabase.from('paris').update({ pari: nomParie }).eq('id', existing.id)
     } else {
-      await supabase.from('paris').insert({ tournament_id: String(tournamentId), tournament_name: tournamentName, joueur, pari: nomParie })
+      await supabase.from('paris').insert({
+        tournament_id: String(matchId),
+        tournament_name: matchLabel,
+        joueur,
+        pari: nomParie
+      })
     }
     loadParis()
   }
 
-  function getPari(tournamentId, joueur) {
-    return paris.find(p => p.tournament_id === String(tournamentId) && p.joueur === joueur)?.pari || ''
+  function getPari(matchId, joueur) {
+    return paris.find(p => p.tournament_id === String(matchId) && p.joueur === joueur)?.pari || ''
   }
 
+  function getWinner(event) {
+    if (event.status?.type !== 'finished') return null
+    return event.winnerCode === 1 ? event.homeTeam?.name : event.awayTeam?.name
+  }
+
+  // Grouper les matchs par tournoi
+  const byTournament = matches.reduce((acc, m) => {
+    const tName = m.tournament?.uniqueTournament?.name || m.tournament?.name || 'Autre'
+    const tId = m.tournament?.uniqueTournament?.id || m.tournament?.id || 0
+    if (!acc[tId]) acc[tId] = { name: tName, category: m.tournament?.uniqueTournament?.category?.name || '', matches: [] }
+    acc[tId].matches.push(m)
+    return acc
+  }, {})
+
+  // Calcul scores
   function calcScore(joueur) {
-    return TOURNAMENTS_CONFIG.reduce((score, t) => {
-      const td = tournamentData[t.id]
-      if (!td?.winner) return score
-      const pari = paris.find(p => p.tournament_id === String(t.id) && p.joueur === joueur)
-      if (pari && pari.pari.toLowerCase().trim() === td.winner.toLowerCase().trim()) {
-        return score + t.pts
+    let score = 0
+    for (const m of matches) {
+      const winner = getWinner(m)
+      if (!winner) continue
+      const pari = getPari(m.id, joueur)
+      if (pari.toLowerCase().trim() === winner.toLowerCase().trim()) {
+        score += getTourPts(
+          m.tournament?.uniqueTournament?.name || '',
+          m.roundInfo?.name || ''
+        )
       }
-      return score
-    }, 0)
+    }
+    return score
   }
 
-  const score1 = calcScore('joueur1')
-  const score2 = calcScore('joueur2')
+  // Score total depuis Supabase (tous les matchs passés)
+  const [totalScore1, setTotalScore1] = useState(0)
+  const [totalScore2, setTotalScore2] = useState(0)
+  useEffect(() => {
+    async function calcTotal() {
+      const { data: resultats } = await supabase.from('resultats').select('*').eq('statut', 'finished')
+      if (!resultats) return
+      let s1 = 0, s2 = 0
+      for (const r of resultats) {
+        const p1 = paris.find(p => p.tournament_id === r.tournament_id && p.joueur === 'joueur1')
+        const p2 = paris.find(p => p.tournament_id === r.tournament_id && p.joueur === 'joueur2')
+        if (p1?.pari?.toLowerCase().trim() === r.vainqueur?.toLowerCase().trim()) s1 += 5
+        if (p2?.pari?.toLowerCase().trim() === r.vainqueur?.toLowerCase().trim()) s2 += 5
+      }
+      setTotalScore1(s1)
+      setTotalScore2(s2)
+    }
+    calcTotal()
+  }, [paris])
 
-  const filteredTournaments = TOURNAMENTS_CONFIG.filter(t =>
-    circuitFilter === 'TOUS' ||
-    (circuitFilter === 'ATP' && (t.circuit === 'ATP' || t.circuit === 'ATP/WTA')) ||
-    (circuitFilter === 'WTA' && (t.circuit === 'WTA' || t.circuit === 'ATP/WTA'))
-  )
+  const score1today = calcScore('joueur1')
+  const score2today = calcScore('joueur2')
+
+  const CAT_COLOR = (name = '') => {
+    const n = name.toLowerCase()
+    if (n.includes('grand slam') || n.includes('australian') || n.includes('roland') || n.includes('wimbledon') || n.includes('us open')) return { bg: '#fff3e0', color: '#e65100' }
+    if (n.includes('1000') || n.includes('masters')) return { bg: '#e3f2fd', color: '#0d47a1' }
+    if (n.includes('500')) return { bg: '#e8f5e9', color: '#1b5e20' }
+    if (n.includes('wta')) return { bg: '#fce4ec', color: '#880e4f' }
+    return { bg: '#f3e5f5', color: '#4a148c' }
+  }
 
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 940, margin: '0 auto', padding: '1rem 1.25rem' }}>
+    <div style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 960, margin: '0 auto', padding: '1rem 1.25rem' }}>
 
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-        <h1 style={{ fontSize: 21, fontWeight: 700, margin: 0 }}>🎾 Tennis Paris</h1>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {liveMatches.length > 0 && (
-            <span style={{ fontSize: 12, background: '#ffebee', color: '#c62828', borderRadius: 20, padding: '3px 10px', fontWeight: 600 }}>
-              ● {liveMatches.length} en direct
-            </span>
-          )}
-          <button onClick={init} style={{ fontSize: 12, padding: '4px 12px', borderRadius: 20, border: '1px solid #ddd', background: '#fff', cursor: 'pointer' }}>
-            🔄 Actualiser
-          </button>
-        </div>
+        <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>🎾 Tennis Paris</h1>
+        <button onClick={refresh} disabled={refreshing}
+          style={{ fontSize: 12, padding: '5px 14px', borderRadius: 20, border: '1px solid #ddd', background: '#fff', cursor: 'pointer' }}>
+          {refreshing ? '...' : '🔄 Actualiser'}
+        </button>
       </div>
 
-      {/* Scores */}
+      {/* Scores totaux */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
-        {[{ nom: JOUEUR1, score: score1, id: 'joueur1' }, { nom: JOUEUR2, score: score2, id: 'joueur2' }].map(j => {
-          const lead = (j.id === 'joueur1' && score1 > score2) || (j.id === 'joueur2' && score2 > score1)
+        {[
+          { nom: JOUEUR1, total: totalScore1, today: score1today, id: 'joueur1' },
+          { nom: JOUEUR2, total: totalScore2, today: score2today, id: 'joueur2' }
+        ].map(j => {
+          const lead = (j.id === 'joueur1' && totalScore1 > totalScore2) || (j.id === 'joueur2' && totalScore2 > totalScore1)
           return (
             <div key={j.id} style={{
-              flex: 1, borderRadius: 14, padding: '16px 20px', textAlign: 'center',
+              flex: 1, borderRadius: 14, padding: '14px 18px', textAlign: 'center',
               background: lead ? '#e8f5e9' : '#f5f5f5',
               border: lead ? '2px solid #66bb6a' : '1px solid #e0e0e0'
             }}>
-              <div style={{ fontSize: 13, color: '#666', marginBottom: 6 }}>{j.nom}</div>
-              <div style={{ fontSize: 38, fontWeight: 800, lineHeight: 1 }}>{j.score}</div>
-              <div style={{ fontSize: 11, color: '#999', marginTop: 5 }}>points</div>
+              <div style={{ fontSize: 13, color: '#666', marginBottom: 4 }}>{j.nom}</div>
+              <div style={{ fontSize: 36, fontWeight: 800, lineHeight: 1 }}>{j.total}</div>
+              <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>
+                pts totaux {j.today > 0 && <span style={{ color: '#43a047' }}>(+{j.today} aujourd'hui)</span>}
+              </div>
             </div>
           )
         })}
@@ -224,85 +238,149 @@ export default function App() {
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
         {[
-          { id: 'tournois', label: '📅 Tournois' },
-          { id: 'live', label: `🔴 En direct${liveMatches.length ? ` (${liveMatches.length})` : ''}` },
+          { id: 'matchs', label: '🎾 Matchs' },
           { id: 'classement', label: '🏆 Classement' },
         ].map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-            style={{ padding: '6px 18px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: activeTab === tab.id ? 600 : 400, background: activeTab === tab.id ? '#1a1a1a' : '#eee', color: activeTab === tab.id ? '#fff' : '#444' }}>
+            style={{ padding: '6px 18px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 13,
+              fontWeight: activeTab === tab.id ? 600 : 400,
+              background: activeTab === tab.id ? '#1a1a1a' : '#eee',
+              color: activeTab === tab.id ? '#fff' : '#444' }}>
             {tab.label}
           </button>
         ))}
-        {activeTab === 'tournois' && (
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 5 }}>
-            {['TOUS', 'ATP', 'WTA'].map(f => (
-              <button key={f} onClick={() => setCircuitFilter(f)}
-                style={{ padding: '4px 12px', borderRadius: 20, border: '1px solid #ddd', cursor: 'pointer', fontSize: 12, background: circuitFilter === f ? '#1565c0' : '#fff', color: circuitFilter === f ? '#fff' : '#555' }}>
-                {f}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
-      {loading && (
-        <div style={{ textAlign: 'center', padding: '40px 0', color: '#999' }}>
-          <div style={{ fontSize: 32, marginBottom: 10 }}>🎾</div>
-          <div>Chargement des tournois...</div>
+      {/* Navigation dates */}
+      {activeTab === 'matchs' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
+          <button onClick={() => setDateOffset(d => d - 1)}
+            style={{ padding: '5px 14px', borderRadius: 20, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontSize: 14 }}>‹</button>
+          <div style={{ flex: 1, textAlign: 'center', fontWeight: 600, fontSize: 15 }}>
+            {dateLabel(dateOffset)}
+            <span style={{ fontSize: 12, color: '#999', marginLeft: 8 }}>{currentDate}</span>
+          </div>
+          <button onClick={() => setDateOffset(d => d + 1)}
+            style={{ padding: '5px 14px', borderRadius: 20, border: '1px solid #ddd', background: '#fff', cursor: 'pointer', fontSize: 14 }}>›</button>
         </div>
       )}
 
-      {/* Onglet Tournois */}
-      {activeTab === 'tournois' && !loading && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {filteredTournaments.map(t => {
-            const td = tournamentData[t.id]
-            const winner = td?.winner
-            const p1 = getPari(t.id, 'joueur1')
-            const p2 = getPari(t.id, 'joueur2')
-            const catStyle = CAT_COLORS[t.category] || { bg: '#f5f5f5', color: '#333' }
-            const p1ok = winner && p1.toLowerCase().trim() === winner.toLowerCase().trim()
-            const p2ok = winner && p2.toLowerCase().trim() === winner.toLowerCase().trim()
+      {/* Onglet Matchs */}
+      {activeTab === 'matchs' && (
+        <div>
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '40px 0', color: '#999' }}>
+              <div style={{ fontSize: 30, marginBottom: 8 }}>🎾</div>
+              Chargement des matchs...
+            </div>
+          ) : Object.keys(byTournament).length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px 0', color: '#999' }}>
+              <div style={{ fontSize: 30, marginBottom: 8 }}>📅</div>
+              Aucun match ATP/WTA ce jour
+            </div>
+          ) : Object.entries(byTournament).map(([tId, t]) => {
+            const catStyle = CAT_COLOR(t.name)
             return (
-              <div key={t.id} style={{
-                border: `1px solid ${winner ? '#c8e6c9' : '#e0e0e0'}`,
-                borderRadius: 12, padding: '12px 16px',
-                background: winner ? '#f9fff9' : '#fff'
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-                  <div>
-                    <span style={{ fontWeight: 600, fontSize: 15 }}>{t.name}</span>
-                    <div style={{ display: 'flex', gap: 5, marginTop: 5, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 11, borderRadius: 4, padding: '2px 7px', background: catStyle.bg, color: catStyle.color, fontWeight: 500 }}>{t.category}</span>
-                      <span style={{ fontSize: 11, borderRadius: 4, padding: '2px 7px', background: '#f0f0f0', color: '#555' }}>{t.pts} pts</span>
-                    </div>
-                  </div>
-                  {winner ? (
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 11, color: '#666' }}>Vainqueur</div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: '#2e7d32' }}>🏆 {winner}</div>
-                    </div>
-                  ) : (
-                    <div style={{ fontSize: 11, color: '#aaa', alignSelf: 'center' }}>À venir</div>
-                  )}
+              <div key={tId} style={{ marginBottom: 20 }}>
+                {/* Header tournoi */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <span style={{ fontWeight: 700, fontSize: 15 }}>{t.name}</span>
+                  <span style={{ fontSize: 11, borderRadius: 4, padding: '2px 7px', background: catStyle.bg, color: catStyle.color, fontWeight: 500 }}>{t.category}</span>
                 </div>
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                  <PariInput
-                    label={JOUEUR1}
-                    value={p1}
-                    disabled={!!winner}
-                    correct={p1ok}
-                    wrong={!!winner && !!p1 && !p1ok}
-                    onSave={v => placerPari(t.id, t.name, 'joueur1', v)}
-                  />
-                  <PariInput
-                    label={JOUEUR2}
-                    value={p2}
-                    disabled={!!winner}
-                    correct={p2ok}
-                    wrong={!!winner && !!p2 && !p2ok}
-                    onSave={v => placerPari(t.id, t.name, 'joueur2', v)}
-                  />
+                {/* Matchs du tournoi */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {t.matches.map(m => {
+                    const winner = getWinner(m)
+                    const isLive = m.status?.type === 'inprogress'
+                    const p1 = getPari(m.id, 'joueur1')
+                    const p2 = getPari(m.id, 'joueur2')
+                    const p1ok = winner && p1.toLowerCase().trim() === winner.toLowerCase().trim()
+                    const p2ok = winner && p2.toLowerCase().trim() === winner.toLowerCase().trim()
+                    const pts = getTourPts(t.name, m.roundInfo?.name)
+                    const homeScore = m.homeScore
+                    const awayScore = m.awayScore
+                    return (
+                      <div key={m.id} style={{
+                        border: `1px solid ${isLive ? '#ffcdd2' : winner ? '#c8e6c9' : '#e0e0e0'}`,
+                        borderRadius: 10, padding: '12px 14px',
+                        background: isLive ? '#fff8f8' : winner ? '#f9fff9' : '#fff'
+                      }}>
+                        {/* Infos match */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+                          <div style={{ flex: 1 }}>
+                            {/* Tour */}
+                            <div style={{ fontSize: 11, color: '#888', marginBottom: 5 }}>
+                              {m.roundInfo?.name || 'Match'}
+                              {' · '}{pts} pts
+                              {isLive && <span style={{ marginLeft: 6, color: '#e53935', fontWeight: 600 }}>● EN DIRECT</span>}
+                            </div>
+                            {/* Joueurs + score */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 14, fontWeight: m.winnerCode === 1 ? 700 : 400, marginBottom: 3 }}>
+                                  {m.firstToServe === 1 && <span style={{ fontSize: 10, marginRight: 4 }}>🎾</span>}
+                                  {m.homeTeam?.name}
+                                </div>
+                                <div style={{ fontSize: 14, fontWeight: m.winnerCode === 2 ? 700 : 400 }}>
+                                  {m.firstToServe === 2 && <span style={{ fontSize: 10, marginRight: 4 }}>🎾</span>}
+                                  {m.awayTeam?.name}
+                                </div>
+                              </div>
+                              {/* Score sets */}
+                              {(isLive || winner) && homeScore && (
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                  {/* Sets joués */}
+                                  {[1,2,3,4,5].map(s => {
+                                    const h = homeScore[`period${s}`]
+                                    const a = awayScore?.[`period${s}`]
+                                    if (h == null) return null
+                                    return (
+                                      <div key={s} style={{ textAlign: 'center', minWidth: 22 }}>
+                                        <div style={{ fontSize: 14, fontWeight: h > a ? 700 : 400 }}>{h}</div>
+                                        <div style={{ fontSize: 14, fontWeight: a > h ? 700 : 400 }}>{a}</div>
+                                      </div>
+                                    )
+                                  })}
+                                  {/* Score sets total */}
+                                  <div style={{ textAlign: 'center', minWidth: 28, borderLeft: '1px solid #eee', paddingLeft: 8 }}>
+                                    <div style={{ fontSize: 16, fontWeight: 800 }}>{homeScore.current ?? 0}</div>
+                                    <div style={{ fontSize: 16, fontWeight: 800 }}>{awayScore?.current ?? 0}</div>
+                                  </div>
+                                </div>
+                              )}
+                              {!isLive && !winner && m.startTimestamp && (
+                                <div style={{ fontSize: 13, color: '#888' }}>
+                                  {new Date(m.startTimestamp * 1000).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Zone paris */}
+                        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', borderTop: '1px solid #f0f0f0', paddingTop: 10 }}>
+                          <PariInput
+                            label={JOUEUR1}
+                            value={p1}
+                            disabled={!!winner || isLive}
+                            correct={p1ok}
+                            wrong={!!winner && !!p1 && !p1ok}
+                            placeholder={`Ex: ${m.homeTeam?.name?.split(' ')[0] || 'Joueur'}`}
+                            onSave={v => placerPari(m.id, `${m.homeTeam?.name} vs ${m.awayTeam?.name}`, 'joueur1', v)}
+                          />
+                          <PariInput
+                            label={JOUEUR2}
+                            value={p2}
+                            disabled={!!winner || isLive}
+                            correct={p2ok}
+                            wrong={!!winner && !!p2 && !p2ok}
+                            placeholder={`Ex: ${m.awayTeam?.name?.split(' ')[0] || 'Joueur'}`}
+                            onSave={v => placerPari(m.id, `${m.homeTeam?.name} vs ${m.awayTeam?.name}`, 'joueur2', v)}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             )
@@ -310,135 +388,92 @@ export default function App() {
         </div>
       )}
 
-      {/* Onglet Live */}
-      {activeTab === 'live' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {liveMatches.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: '#999' }}>
-              <div style={{ fontSize: 32, marginBottom: 8 }}>🎾</div>
-              Aucun match en direct pour le moment
-            </div>
-          ) : liveMatches.map(m => (
-            <div key={m.id} style={{ border: '1px solid #ffcdd2', borderRadius: 12, padding: '12px 16px', background: '#fff8f8' }}>
-              <div style={{ fontSize: 11, color: '#e53935', fontWeight: 600, marginBottom: 8 }}>
-                ● EN DIRECT — {m.tournament?.name}
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 14, fontWeight: m.winnerCode === 1 ? 700 : 400, marginBottom: 4 }}>
-                    {m.homeTeam?.name}
-                    {m.firstToServe === 1 && <span style={{ marginLeft: 5, fontSize: 11 }}>🎾</span>}
-                  </div>
-                  <div style={{ fontSize: 14, fontWeight: m.winnerCode === 2 ? 700 : 400 }}>
-                    {m.awayTeam?.name}
-                    {m.firstToServe === 2 && <span style={{ marginLeft: 5, fontSize: 11 }}>🎾</span>}
-                  </div>
-                </div>
-                <div style={{ textAlign: 'center', minWidth: 60 }}>
-                  <div style={{ fontSize: 24, fontWeight: 800, lineHeight: 1 }}>
-                    {m.homeScore?.current ?? '—'}–{m.awayScore?.current ?? '—'}
-                  </div>
-                  <div style={{ fontSize: 11, color: '#888', marginTop: 3 }}>sets</div>
-                </div>
-                {/* Détail des sets */}
-                <div style={{ display: 'flex', gap: 8 }}>
-                  {[1, 2, 3, 4, 5].map(s => {
-                    const h = m.homeScore?.[`period${s}`]
-                    const a = m.awayScore?.[`period${s}`]
-                    if (h == null) return null
-                    return (
-                      <div key={s} style={{ textAlign: 'center', fontSize: 13 }}>
-                        <div style={{ fontWeight: h > a ? 700 : 400 }}>{h}</div>
-                        <div style={{ fontWeight: a > h ? 700 : 400 }}>{a}</div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
       {/* Onglet Classement */}
       {activeTab === 'classement' && (
-        <div>
-          {TOURNAMENTS_CONFIG.filter(t => tournamentData[t.id]?.winner).length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: '#999' }}>
-              <div style={{ fontSize: 32, marginBottom: 8 }}>🏆</div>
-              Aucun tournoi terminé pour l'instant
-            </div>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ background: '#f5f5f5' }}>
-                  <th style={{ padding: '9px 12px', textAlign: 'left' }}>Tournoi</th>
-                  <th style={{ padding: '9px 12px', textAlign: 'center' }}>Catégorie</th>
-                  <th style={{ padding: '9px 12px', textAlign: 'center' }}>Vainqueur</th>
-                  <th style={{ padding: '9px 12px', textAlign: 'center' }}>{JOUEUR1}</th>
-                  <th style={{ padding: '9px 12px', textAlign: 'center' }}>{JOUEUR2}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {TOURNAMENTS_CONFIG.filter(t => tournamentData[t.id]?.winner).map(t => {
-                  const winner = tournamentData[t.id].winner
-                  const p1 = getPari(t.id, 'joueur1')
-                  const p2 = getPari(t.id, 'joueur2')
-                  const ok1 = p1.toLowerCase().trim() === winner.toLowerCase().trim()
-                  const ok2 = p2.toLowerCase().trim() === winner.toLowerCase().trim()
-                  return (
-                    <tr key={t.id} style={{ borderBottom: '1px solid #eee' }}>
-                      <td style={{ padding: '8px 12px', fontWeight: 500 }}>{t.name}</td>
-                      <td style={{ padding: '8px 12px', textAlign: 'center', fontSize: 11, color: '#666' }}>{t.category}</td>
-                      <td style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 600 }}>{winner}</td>
-                      <td style={{ padding: '8px 12px', textAlign: 'center', color: ok1 ? '#2e7d32' : p1 ? '#c62828' : '#aaa', fontWeight: ok1 ? 700 : 400 }}>
-                        {p1 || '—'} {ok1 && <span style={{ fontSize: 11 }}>+{t.pts}</span>}
-                      </td>
-                      <td style={{ padding: '8px 12px', textAlign: 'center', color: ok2 ? '#2e7d32' : p2 ? '#c62828' : '#aaa', fontWeight: ok2 ? 700 : 400 }}>
-                        {p2 || '—'} {ok2 && <span style={{ fontSize: 11 }}>+{t.pts}</span>}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-              <tfoot>
-                <tr style={{ background: '#f5f5f5', fontWeight: 700 }}>
-                  <td colSpan={3} style={{ padding: '10px 12px' }}>Total</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'center', fontSize: 16 }}>{score1} pts</td>
-                  <td style={{ padding: '10px 12px', textAlign: 'center', fontSize: 16 }}>{score2} pts</td>
-                </tr>
-              </tfoot>
-            </table>
-          )}
-        </div>
+        <ClassementTab paris={paris} JOUEUR1={JOUEUR1} JOUEUR2={JOUEUR2} />
       )}
     </div>
   )
 }
 
-function PariInput({ label, value, onSave, disabled, correct, wrong }) {
+function ClassementTab({ paris, JOUEUR1, JOUEUR2 }) {
+  const [resultats, setResultats] = useState([])
+  useEffect(() => {
+    supabase.from('resultats').select('*').eq('statut', 'finished').order('updated_at', { ascending: false })
+      .then(({ data }) => setResultats(data || []))
+  }, [])
+
+  let s1 = 0, s2 = 0
+  return (
+    <div>
+      {resultats.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '40px 0', color: '#999' }}>
+          <div style={{ fontSize: 30, marginBottom: 8 }}>🏆</div>
+          Aucun match terminé avec un pari pour l'instant
+        </div>
+      ) : (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: '#f5f5f5' }}>
+              <th style={{ padding: '9px 10px', textAlign: 'left' }}>Match</th>
+              <th style={{ padding: '9px 10px', textAlign: 'center' }}>Vainqueur</th>
+              <th style={{ padding: '9px 10px', textAlign: 'center' }}>{JOUEUR1}</th>
+              <th style={{ padding: '9px 10px', textAlign: 'center' }}>{JOUEUR2}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {resultats.map(r => {
+              const p1 = paris.find(p => p.tournament_id === r.tournament_id && p.joueur === 'joueur1')?.pari || ''
+              const p2 = paris.find(p => p.tournament_id === r.tournament_id && p.joueur === 'joueur2')?.pari || ''
+              const ok1 = p1.toLowerCase().trim() === r.vainqueur?.toLowerCase().trim()
+              const ok2 = p2.toLowerCase().trim() === r.vainqueur?.toLowerCase().trim()
+              if (ok1) s1 += 5
+              if (ok2) s2 += 5
+              return (
+                <tr key={r.tournament_id} style={{ borderBottom: '1px solid #eee' }}>
+                  <td style={{ padding: '8px 10px', fontSize: 12, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.tournament_name}</td>
+                  <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 600, fontSize: 12 }}>{r.vainqueur}</td>
+                  <td style={{ padding: '8px 10px', textAlign: 'center', color: ok1 ? '#2e7d32' : p1 ? '#c62828' : '#bbb', fontWeight: ok1 ? 700 : 400 }}>
+                    {p1 || '—'} {ok1 ? '✅' : p1 ? '❌' : ''}
+                  </td>
+                  <td style={{ padding: '8px 10px', textAlign: 'center', color: ok2 ? '#2e7d32' : p2 ? '#c62828' : '#bbb', fontWeight: ok2 ? 700 : 400 }}>
+                    {p2 || '—'} {ok2 ? '✅' : p2 ? '❌' : ''}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+          <tfoot>
+            <tr style={{ background: '#f5f5f5', fontWeight: 700 }}>
+              <td colSpan={2} style={{ padding: '10px' }}>Total</td>
+              <td style={{ padding: '10px', textAlign: 'center', fontSize: 16 }}>{s1} pts</td>
+              <td style={{ padding: '10px', textAlign: 'center', fontSize: 16 }}>{s2} pts</td>
+            </tr>
+          </tfoot>
+        </table>
+      )}
+    </div>
+  )
+}
+
+function PariInput({ label, value, onSave, disabled, correct, wrong, placeholder }) {
   const [val, setVal] = useState(value)
   useEffect(() => setVal(value), [value])
-  const bg = correct ? '#e8f5e9' : wrong ? '#ffebee' : '#fff'
   const border = correct ? '#a5d6a7' : wrong ? '#ef9a9a' : '#ddd'
+  const bg = correct ? '#f1f8f1' : wrong ? '#fff5f5' : '#fff'
   return (
-    <div style={{ flex: 1, display: 'flex', gap: 6, alignItems: 'center', minWidth: 200 }}>
-      <span style={{ fontSize: 12, color: '#666', whiteSpace: 'nowrap', minWidth: 60 }}>{label} :</span>
-      <input
-        value={val}
-        onChange={e => setVal(e.target.value)}
-        placeholder={disabled ? (value || 'Terminé') : 'Ex: Sinner'}
+    <div style={{ flex: 1, display: 'flex', gap: 6, alignItems: 'center', minWidth: 180 }}>
+      <span style={{ fontSize: 12, color: '#666', whiteSpace: 'nowrap', minWidth: 55 }}>{label} :</span>
+      <input value={val} onChange={e => setVal(e.target.value)}
+        placeholder={disabled ? (value || '—') : placeholder}
         disabled={disabled}
-        style={{ flex: 1, padding: '5px 9px', borderRadius: 7, border: `1px solid ${border}`, fontSize: 13, background: bg, color: disabled ? '#555' : '#000' }}
-      />
+        style={{ flex: 1, padding: '5px 9px', borderRadius: 7, border: `1px solid ${border}`, fontSize: 13, background: disabled ? '#fafafa' : bg, color: disabled ? '#666' : '#000' }} />
       {!disabled && (
         <button onClick={() => val.trim() && onSave(val.trim())}
-          style={{ padding: '5px 11px', borderRadius: 7, border: 'none', background: '#1a1a1a', color: '#fff', fontSize: 13, cursor: 'pointer' }}>
-          ✓
-        </button>
+          style={{ padding: '5px 11px', borderRadius: 7, border: 'none', background: '#1a1a1a', color: '#fff', fontSize: 13, cursor: 'pointer' }}>✓</button>
       )}
-      {correct && <span style={{ fontSize: 16 }}>✅</span>}
-      {wrong && <span style={{ fontSize: 16 }}>❌</span>}
+      {correct && <span>✅</span>}
+      {wrong && <span>❌</span>}
     </div>
   )
 }
